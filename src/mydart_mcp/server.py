@@ -7,7 +7,7 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
-from . import attachments, catalog, dart, extract
+from . import attachments, catalog, dart, extract, stock
 
 mcp = MCPServer("mydart")
 
@@ -693,6 +693,40 @@ def call_dart_api(endpoint: str, params: dict[str, str]) -> dict[str, Any]:
     data.pop("status", None)
     data.pop("message", None)
     return {"endpoint": known.id, "name": known.name, **data}
+
+
+@mcp.tool()
+def get_stock_price(stock_code: str, start_date: str, end_date: str) -> dict[str, Any]:
+    """국내 상장주식의 일별 시세를 기간으로 조회한다(공공데이터포털 금융위원회_주식시세정보).
+
+    종가·시가·고가·저가·거래량·거래대금·상장주식수·시가총액을 하루 한 행으로 돌려준다.
+    OpenDART에는 주가가 없으므로 시가총액·주가 추이·특정일 종가는 이 도구로 본다.
+
+    - 원 종가 기준이다(수정주가 아님). 액면분할이 낀 기간은 끊겨 보인다.
+    - 기준일 다음 영업일 13시 이후 갱신되어 오늘·어제 값은 아직 없을 수 있다.
+    - 휴장일은 행이 없다. 특정일 값이 없으면 그 직전 영업일 행을 쓰고 날짜를 밝힌다.
+    - rows는 API 원문 그대로다. 금액 단위는 원.
+
+    Args:
+        stock_code: 6자리 단축 종목코드 (예: "263750"). corp_code(8자리)가 아니다.
+        start_date: 시작일 YYYYMMDD (포함)
+        end_date: 종료일 YYYYMMDD (포함)
+    """
+    return stock.price_history(stock_code, start_date, end_date)
+
+
+@mcp.tool()
+def get_market_snapshot(base_date: str, market: str | None = None) -> dict[str, Any]:
+    """특정 영업일의 전 종목 시세·시가총액을 한 번에 조회한다(공공데이터포털 금융위원회_주식시세정보).
+
+    시가총액 순위, 업종·그룹 합산, 여러 종목의 같은 날 종가 비교에 쓴다.
+    휴장일이면 행이 0개다 — 직전 영업일로 다시 부른다.
+
+    Args:
+        base_date: 기준일 YYYYMMDD
+        market: "KOSPI", "KOSDAQ", "KONEX" 중 하나. 생략하면 전체(약 2,800종목).
+    """
+    return stock.market_snapshot(base_date, market)
 
 
 def _prepare_stdio() -> None:
