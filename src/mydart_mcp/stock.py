@@ -21,8 +21,8 @@ from typing import Any
 
 import httpx
 
-URL = "https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService/getStockPriceInfo"
-SOURCE = "공공데이터포털 금융위원회_주식시세정보(getStockPriceInfo)"
+URL = "https://apis.data.go.kr/1160100/GetStockSecuritiesInfoService_V2/getStockPriceInfo_V2"
+SOURCE = "공공데이터포털 금융위원회_주식시세정보(getStockPriceInfo_V2)"
 PAGE_SIZE = 1000
 MAX_PAGES = 10  # 전 종목 하루치가 약 2,800행이라 이 정도면 충분하다
 
@@ -79,12 +79,24 @@ def fetch(**params: Any) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     total = 0
     for page in range(1, MAX_PAGES + 1):
-        response = httpx.get(
-            URL,
-            params={"serviceKey": _key(), "resultType": "json", "numOfRows": PAGE_SIZE, "pageNo": page, **query},
-            timeout=30.0,
-        )
-        response.raise_for_status()
+        try:
+            response = httpx.get(
+                URL,
+                params={"serviceKey": _key(), "resultType": "json", "numOfRows": PAGE_SIZE, "pageNo": page, **query},
+                timeout=30.0,
+            )
+        except httpx.HTTPError as exc:
+            # 예외 문자열에 요청 URL(=인증키)이 들어가므로 그대로 올리지 않는다
+            raise StockError(f"시세 API에 연결하지 못했습니다: {type(exc).__name__}") from None
+        if response.status_code != 200:
+            # raise_for_status()의 메시지에는 serviceKey가 든 URL이 통째로 찍힌다 — 쓰지 않는다
+            hint = {
+                401: "인증키가 틀렸습니다.",
+                403: "인증키가 이 API에 아직 승인·동기화되지 않았습니다. 활용신청 직후라면 1~2시간 뒤 다시 시도하고, "
+                "공공데이터포털 마이페이지에서 '금융위원회_주식시세정보'가 활용 목록에 있는지 확인하세요.",
+                429: "호출 한도를 넘었습니다.",
+            }.get(response.status_code, "")
+            raise StockError(f"시세 API HTTP {response.status_code}. {hint} 응답: {response.text[:200]}")
         try:
             data = response.json()
         except ValueError as exc:
