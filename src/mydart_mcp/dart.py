@@ -16,6 +16,11 @@ from typing import Any
 
 import httpx
 
+try:  # mcp 2.x
+    from mcp.server.mcpserver.exceptions import ToolError as _ToolError
+except ImportError:  # pragma: no cover - 구버전 SDK
+    _ToolError = RuntimeError
+
 BASE_URL = "https://opendart.fss.or.kr/api"
 CORP_CODE_TTL_SEC = 60 * 60 * 24 * 7  # 고유번호 파일은 주 1회만 새로 받는다
 
@@ -49,12 +54,16 @@ SJ_DIV = {
 }
 
 
-class DartError(RuntimeError):
-    """OpenDART가 오류 상태를 반환했거나 설정이 잘못된 경우."""
+class DartError(_ToolError):
+    """OpenDART가 오류 상태를 반환했거나 설정이 잘못된 경우.
+
+    MCP SDK는 ToolError가 아닌 예외의 메시지를 모델에 보여 주지 않는다("Error executing tool ..."만 보임).
+    무엇이 잘못됐는지(키 없음, 형식 오류 등)를 모델이 읽고 고칠 수 있도록 ToolError로 올린다.
+    """
 
 
-# OpenDART로 나가는 crtfc_key와, 원격으로 쓸 때 들어오는 ?key= 둘 다 가린다.
-_KEY_RE = re.compile(r"\b((?:crtfc_key|opendart_key|key)=)[^&\s\"']+")
+# OpenDART로 나가는 crtfc_key, 원격으로 쓸 때 들어오는 ?key=·&team=, 시세 API의 serviceKey를 가린다.
+_KEY_RE = re.compile(r"\b((?:crtfc_key|opendart_key|key|serviceKey|team)=)[^&\s\"']+")
 
 
 def _redact(value: Any) -> Any:
@@ -62,7 +71,7 @@ def _redact(value: Any) -> Any:
     if isinstance(value, str):
         return _KEY_RE.sub(r"\1***", value)
     rendered = str(value)
-    return _KEY_RE.sub(r"\1***", rendered) if "key=" in rendered else value
+    return _KEY_RE.sub(r"\1***", rendered) if _KEY_RE.search(rendered) else value
 
 
 class _RedactApiKey(logging.Filter):

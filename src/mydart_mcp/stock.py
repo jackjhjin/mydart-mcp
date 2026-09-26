@@ -7,6 +7,10 @@ OpenDART에는 주가가 없어 시가총액·주가 추이를 볼 수 없다. �
 '일반 인증키(Decoding)'). OpenDART 키와 달리 주소에 붙여 보내지 않는다 — 한 팀이
 같은 서버를 쓸 때 키 하나로 충분하고, 팀원이 따로 발급받을 필요가 없다.
 
+팀 밖에서 이 키를 쓰지 못하게, 서버에 TEAM_TOKEN 이 설정돼 있으면 커넥터 주소에
+&team=<같은 값> 을 붙인 요청만 시세 도구를 쓸 수 있다(원격 HTTP로 띄울 때). TEAM_TOKEN 이
+없으면 제한하지 않는다 — 내 PC에 설치해 혼자 쓰는 경우.
+
 알아둘 점
 - 갱신: 기준일 다음 영업일 13시 이후. 오늘·어제 종가는 아직 없을 수 있다.
 - 수정주가가 아니다(원 종가). 액면분할 전후를 이으면 끊긴다.
@@ -15,11 +19,18 @@ OpenDART에는 주가가 없어 시가총액·주가 추이를 볼 수 없다. �
 
 from __future__ import annotations
 
+import hmac
 import os
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
+
+try:  # mcp 2.x
+    from mcp.server.mcpserver.exceptions import ToolError as _ToolError
+except ImportError:  # pragma: no cover - 구버전 SDK
+    _ToolError = RuntimeError
 
 URL = "https://apis.data.go.kr/1160100/GetStockSecuritiesInfoService_V2/getStockPriceInfo_V2"
 SOURCE = "공공데이터포털 금융위원회_주식시세정보(getStockPriceInfo_V2)"
@@ -46,11 +57,37 @@ FIELDS = {
 }
 
 
-class StockError(RuntimeError):
-    """시세 API가 오류를 돌려줬거나 설정이 빠진 경우."""
+class StockError(_ToolError):
+    """시세 API가 오류를 돌려줬거나 설정이 빠진 경우.
+
+    MCP SDK는 ToolError가 아닌 예외의 메시지를 모델에 보여 주지 않는다("Error executing tool ..."만 보임).
+    무엇이 잘못됐는지(키 없음, 형식 오류 등)를 모델이 읽고 고칠 수 있도록 ToolError로 올린다.
+    """
+
+
+# 요청마다 들어온 팀 암호. 인증키처럼 다음 사람 요청에 새지 않도록 ContextVar에 둔다.
+_request_team: ContextVar[str] = ContextVar("team_token", default="")
+
+
+def use_team_token(value: str) -> None:
+    """원격 진입점(http.py)이 요청의 &team= 값을 넘겨준다."""
+    _request_team.set(value or "")
+
+
+def _check_team() -> None:
+    expected = (os.environ.get("TEAM_TOKEN") or "").strip()
+    if not expected or (expected.startswith("${") and expected.endswith("}")):
+        return
+    given = _request_team.get().strip()
+    if not given or not hmac.compare_digest(given.encode(), expected.encode()):
+        raise StockError(
+            "시세 도구는 팀 전용입니다. 커넥터 주소 끝에 &team=팀암호 를 붙여 다시 연결하세요 "
+            "(팀암호는 관리자에게 받습니다)."
+        )
 
 
 def _key() -> str:
+    _check_team()
     value = (os.environ.get("DATA_GO_KR_KEY") or "").strip()
     if not value or (value.startswith("${") and value.endswith("}")):
         raise StockError(

@@ -18,7 +18,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from starlette.types import Receive, Scope, Send
 
-from . import dart, landing
+from . import dart, landing, stock
 from .server import mcp
 
 # 서버리스(Vercel 등)에서는 홈 디렉터리에 쓸 수 없다. 쓸 수 있는 곳은 /tmp뿐이고,
@@ -46,6 +46,15 @@ def _build_mcp_app():
         # 없어 전부 거부된다. 여기서는 인증키가 없으면 위에서 이미 막히므로 끈다.
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
+
+
+def _team_from(scope: Scope) -> str:
+    """주소의 &team= 값(시세 도구용 팀 암호)을 꺼낸다. 없으면 빈 문자열."""
+    from urllib.parse import parse_qs
+
+    query = parse_qs(scope.get("query_string", b"").decode("utf-8", "replace"))
+    values = query.get("team")
+    return values[0].strip() if values and values[0].strip() else ""
 
 
 def _key_from(scope: Scope) -> str:
@@ -115,6 +124,7 @@ async def app(scope: Scope, receive: Receive, send: Send) -> None:
     scope = {**scope, "path": "/mcp", "raw_path": b"/mcp", "root_path": ""}
 
     dart.use_api_key(key)
+    stock.use_team_token(_team_from(scope))
     mcp_app = _build_mcp_app()
     async with mcp_app.router.lifespan_context(mcp_app):
         await mcp_app(scope, receive, send)
