@@ -716,17 +716,26 @@ def get_stock_price(stock_code: str, start_date: str, end_date: str) -> dict[str
 
 
 @mcp.tool()
-def get_market_snapshot(base_date: str, market: str | None = None) -> dict[str, Any]:
-    """특정 영업일의 전 종목 시세·시가총액을 한 번에 조회한다(공공데이터포털 금융위원회_주식시세정보).
+def get_market_snapshot(
+    base_date: str,
+    market: str | None = None,
+    stock_codes: list[str] | None = None,
+    top: int = 30,
+) -> dict[str, Any]:
+    """특정 영업일의 여러 종목 시세·시가총액을 한 번에 조회한다(공공데이터포털 금융위원회_주식시세정보).
 
-    시가총액 순위, 업종·그룹 합산, 여러 종목의 같은 날 종가 비교에 쓴다.
+    여러 종목의 같은 날 종가·시총 비교, 시가총액 순위, 시장 전체 대비 비중 계산에 쓴다.
+    종목을 지정하면 그 종목만, 지정하지 않으면 시가총액 상위 top개만 돌려준다.
+    universe_mrktTotAmt_sum은 조회한 시장 전체의 시가총액 합(원)이다.
     휴장일이면 행이 0개다 — 직전 영업일로 다시 부른다.
 
     Args:
         base_date: 기준일 YYYYMMDD
-        market: "KOSPI", "KOSDAQ", "KONEX" 중 하나. 생략하면 전체(약 2,800종목).
+        market: "KOSPI", "KOSDAQ", "KONEX" 중 하나. 생략하면 전체.
+        stock_codes: 6자리 단축코드 목록 (예: ["263750", "259960"]). 주면 top은 무시한다.
+        top: 종목을 지정하지 않을 때 시가총액 상위 몇 개를 돌려줄지 (기본 30, 최대 300)
     """
-    return stock.market_snapshot(base_date, market)
+    return stock.market_snapshot(base_date, market, stock_codes, top)
 
 
 def _prepare_stdio() -> None:

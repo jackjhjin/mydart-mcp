@@ -140,9 +140,31 @@ def price_history(stock_code: str, start_date: str, end_date: str) -> dict[str, 
     return result
 
 
-def market_snapshot(base_date: str, market: str | None = None) -> dict[str, Any]:
+def market_snapshot(
+    base_date: str,
+    market: str | None = None,
+    stock_codes: list[str] | None = None,
+    top: int = 30,
+) -> dict[str, Any]:
+    """하루치 전 종목 응답은 1MB가 넘어 그대로 돌려주면 대화가 넘친다.
+    종목을 지정하면 그 종목만, 아니면 시가총액 상위 top개만 돌려준다(행은 원문 그대로)."""
     day = _ymd(base_date, "base_date")
     market_code = (market or "").strip().upper() or None
     if market_code and market_code not in ("KOSPI", "KOSDAQ", "KONEX"):
         raise StockError("market은 KOSPI, KOSDAQ, KONEX 중 하나이거나 비워 둡니다.")
-    return fetch(basDt=day, mrktCls=market_code)
+    result = fetch(basDt=day, mrktCls=market_code)
+    rows = result["rows"]
+    universe = len(rows)
+    total_cap = sum(int(row.get("mrktTotAmt") or 0) for row in rows)
+    if stock_codes:
+        wanted = {code.strip().removeprefix("A") for code in stock_codes}
+        rows = [row for row in rows if row.get("srtnCd") in wanted]
+        result["missing_codes"] = sorted(wanted - {row.get("srtnCd") for row in rows})
+    else:
+        limit = max(1, min(int(top), 300))
+        rows = sorted(rows, key=lambda row: int(row.get("mrktTotAmt") or 0), reverse=True)[:limit]
+    result["rows"] = rows
+    result["count"] = len(rows)
+    result["universe_count"] = universe
+    result["universe_mrktTotAmt_sum"] = total_cap  # 조회 범위(시장) 전체 시가총액 합, 원
+    return result
