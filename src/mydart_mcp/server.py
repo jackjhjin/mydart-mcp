@@ -6,10 +6,17 @@ import sys
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
+from mcp.types import ToolAnnotations
 
 from . import attachments, catalog, dart, extract, stock
 
 mcp = MCPServer("mydart")
+
+# 모든 도구는 OpenDART·공공데이터포털을 조회만 한다. 읽기 전용으로 표시해 두어야
+# claude.ai 팀 플랜이 도구마다 호출 승인을 요구하지 않는다(globaldisc-mcp와 같은 설정).
+_READ_ONLY = ToolAnnotations(
+    read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=True
+)
 
 # 재무지표 구분 코드
 IDX_CL_CODES = {
@@ -71,7 +78,7 @@ def _lookup(
     return widened, bool(widened)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def search_company(
     query: str | list[str], listed_only: bool = True, limit: int = 10
 ) -> dict[str, Any]:
@@ -139,7 +146,7 @@ def search_company(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def get_company_profile(corp_code: str) -> dict[str, Any]:
     """기업개황을 조회한다 (대표자, 법인구분, 설립일, 결산월, 주소, 홈페이지 등).
 
@@ -152,7 +159,7 @@ def get_company_profile(corp_code: str) -> dict[str, Any]:
     return data
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def search_disclosures(
     corp_code: str | None = None,
     bgn_de: str | None = None,
@@ -204,7 +211,7 @@ def search_disclosures(
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def get_disclosure_document(rcept_no: str, max_chars: int = 20000, offset: int = 0) -> dict[str, Any]:
     """공시 원문을 텍스트로 가져온다.
 
@@ -230,7 +237,7 @@ def get_disclosure_document(rcept_no: str, max_chars: int = 20000, offset: int =
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def list_attachments(rcept_no: str) -> dict[str, Any]:
     """공시에 딸린 첨부파일 목록을 본다.
 
@@ -249,7 +256,7 @@ def list_attachments(rcept_no: str) -> dict[str, Any]:
     return attachments.list_attachments(rcept_no)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def read_attachment(
     rcept_no: str,
     filename: str | None = None,
@@ -326,7 +333,7 @@ def _pick_attachment(
     return target
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 @_year_rule
 def get_financial_statements(
     corp_code: str,
@@ -375,7 +382,7 @@ def get_financial_statements(
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 @_year_rule
 def compare_financials(
     corp_codes: list[str],
@@ -454,7 +461,7 @@ Args:
 MAX_PERIODIC_LOOKUPS = 60
 
 
-@mcp.tool(description=_PERIODIC_DESC)
+@mcp.tool(description=_PERIODIC_DESC, annotations=_READ_ONLY)
 def get_periodic_report_item(
     corp_codes: list[str],
     bsns_years: list[str],
@@ -539,7 +546,7 @@ Args:
 )
 
 
-@mcp.tool(description=_MAJOR_EVENT_DESC)
+@mcp.tool(description=_MAJOR_EVENT_DESC, annotations=_READ_ONLY)
 def get_major_event(corp_code: str, item: str, bgn_de: str, end_de: str) -> dict[str, Any]:
     endpoint = catalog.resolve("major_event", item)
     data = dart.get_json(f"{endpoint.id}.json", corp_code=corp_code, bgn_de=bgn_de, end_de=end_de)
@@ -558,7 +565,7 @@ Args:
 )
 
 
-@mcp.tool(description=_REGISTRATION_DESC)
+@mcp.tool(description=_REGISTRATION_DESC, annotations=_READ_ONLY)
 def get_securities_registration(
     corp_code: str, item: str, bgn_de: str, end_de: str
 ) -> dict[str, Any]:
@@ -577,14 +584,14 @@ Args:
 )
 
 
-@mcp.tool(description=_SHAREHOLDING_DESC)
+@mcp.tool(description=_SHAREHOLDING_DESC, annotations=_READ_ONLY)
 def get_shareholding(corp_code: str, item: str) -> dict[str, Any]:
     endpoint = catalog.resolve("shareholding", item)
     data = dart.get_json(f"{endpoint.id}.json", corp_code=corp_code)
     return _rows(endpoint, data)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 @_year_rule
 def get_financial_indicators(
     corp_codes: list[str],
@@ -628,7 +635,7 @@ def get_financial_indicators(
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def list_dart_apis(category: str | None = None, query: str | None = None) -> dict[str, Any]:
     """OpenDART가 제공하는 83개 오픈API 전체 목록을 훑는다.
 
@@ -667,7 +674,7 @@ def list_dart_apis(category: str | None = None, query: str | None = None) -> dic
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def call_dart_api(endpoint: str, params: dict[str, str]) -> dict[str, Any]:
     """OpenDART JSON API를 엔드포인트 이름으로 직접 호출한다.
 
@@ -695,7 +702,7 @@ def call_dart_api(endpoint: str, params: dict[str, str]) -> dict[str, Any]:
     return {"endpoint": known.id, "name": known.name, **data}
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def get_stock_price(stock_code: str, start_date: str, end_date: str) -> dict[str, Any]:
     """국내 상장주식의 일별 시세를 기간으로 조회한다(공공데이터포털 금융위원회_주식시세정보).
 
@@ -715,7 +722,7 @@ def get_stock_price(stock_code: str, start_date: str, end_date: str) -> dict[str
     return stock.price_history(stock_code, start_date, end_date)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def get_market_snapshot(
     base_date: str,
     market: str | None = None,
